@@ -7,7 +7,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/gin-gonic/gin"
 	"github.com/shurcooL/graphql"
-	"fmt"
+	"os"
 )
 
 type Station struct {
@@ -26,7 +26,11 @@ func main() {
 	router.GET("/stations", controller.GetStations)
 	router.POST("/stations", controller.CreateStation)
 
-	router.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	router.Run(":" + port)
 }
 
 func getDB() *sql.DB {

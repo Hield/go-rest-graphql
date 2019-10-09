@@ -3,8 +3,11 @@ package main
 import (
 	"net/http"
 	"database/sql"
+	"context"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/gin-gonic/gin"
+	"github.com/shurcooL/graphql"
+	"fmt"
 )
 
 type Station struct {
@@ -17,7 +20,8 @@ type Station struct {
 func main() {
 	database := getDB()
 	router := gin.Default()
-	controller := &Controller{database: database}
+	client := graphql.NewClient("https://api.digitransit.fi/routing/v1/routers/finland/index/graphql", nil)
+	controller := &Controller{database: database, client: client}
 
 	router.GET("/stations", controller.GetStations)
 	router.POST("/stations", controller.CreateStation)
@@ -44,9 +48,11 @@ func getDB() *sql.DB {
 
 type Controller struct {
 	database *sql.DB
+	client *graphql.Client
 }
 
 func (controller *Controller) GetStations(c *gin.Context) {
+	// Get stations from local database
 	rows, err := controller.database.Query(`SELECT * FROM stations`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -67,6 +73,30 @@ func (controller *Controller) GetStations(c *gin.Context) {
 			return
 		}
 		stations = append(stations, Station{id, name, bikesAvailable, spacesAvailable})
+	}
+
+	// Get stations from GraphQL
+	var query struct {
+		BikeRentalStations []struct {
+			StationId graphql.String
+			Name graphql.String
+			BikesAvailable graphql.Int
+			SpacesAvailable graphql.Int
+		}
+	}
+	err = controller.client.Query(context.Background(), &query, nil)
+	if err != nil {
+		// Return only the ones from local database if can't query
+		c.JSON(http.StatusOK, stations)
+		return
+	}
+	for _, station := range query.BikeRentalStations {
+		stations = append(stations, Station{
+			string(station.StationId),
+			string(station.Name),
+			int(station.BikesAvailable),
+			int(station.SpacesAvailable),
+		})
 	}
 	c.JSON(http.StatusOK, stations)
 }
